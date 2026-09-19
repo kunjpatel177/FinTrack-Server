@@ -7,8 +7,10 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const { processDueRecurringTransactions } = require('./services/recurringService');
 
-// Connect to Database
-connectDB();
+// Connect to Database on startup
+connectDB().catch((err) => {
+  console.error(`[Boot DB Notice]: ${err.message}`);
+});
 
 const PORT = process.env.PORT || 5000;
 

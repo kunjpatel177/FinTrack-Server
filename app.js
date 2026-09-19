@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 
+const mongoose = require('mongoose');
+const connectDB = require('./config/db');
 const errorHandler = require('./middleware/error');
 
 // Route files
@@ -101,14 +103,57 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Health check endpoint
+// Health check endpoint with diagnostic database status
 app.get('/api/v1/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const states = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting',
+  };
+
+  const hasMongoUri = Boolean(process.env.MONGO_URI);
+  let clusterHost = 'none';
+
+  if (hasMongoUri) {
+    try {
+      const match = process.env.MONGO_URI.match(/@([^/?]+)/);
+      clusterHost = match ? match[1] : 'configured';
+    } catch {
+      clusterHost = 'configured';
+    }
+  }
+
   res.status(200).json({
     status: 'online',
+    database: {
+      status: states[dbState] || 'unknown',
+      readyState: dbState,
+      hasMongoUri,
+      cluster: clusterHost,
+    },
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     app: 'FinTrack API',
   });
+});
+
+// Database connection middleware: ensures MongoDB is active before handling any API route
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error(`[Database Middleware Error]: ${err.message}`);
+    return res.status(500).json({
+      success: false,
+      message: `Database connection failed: ${err.message}`,
+      hint: !process.env.MONGO_URI
+        ? 'MONGO_URI is missing in Vercel Environment Variables. Please add MONGO_URI in your Vercel Project Settings.'
+        : 'If MONGO_URI is set, verify MongoDB Atlas Network Access allows connections from anywhere (add IP 0.0.0.0/0).',
+    });
+  }
 });
 
 // Mount routers
